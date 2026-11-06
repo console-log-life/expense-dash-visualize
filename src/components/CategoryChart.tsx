@@ -1,108 +1,70 @@
-
-import React, { useMemo } from 'react';
+import React from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { Transaction, CATEGORIES } from "@/types/transaction";
+import { Summary, categoryIcon } from "@/types/transaction";
+import { formatINR } from "@/lib/format";
 
 interface CategoryChartProps {
-  transactions: Transaction[];
+  byCategory: Summary['byCategory'];
+  showTable?: boolean;
 }
 
-const COLORS = [
-  '#3b82f6', // blue
-  '#10b981', // green
-  '#f59e0b', // yellow
-  '#ef4444', // red
-  '#8b5cf6', // purple
-  '#06b6d4', // cyan
-  '#f97316', // orange
-  '#84cc16', // lime
-  '#ec4899', // pink
-  '#6b7280', // gray
-];
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6b7280', '#14b8a6'];
 
-const CategoryChart: React.FC<CategoryChartProps> = ({ transactions }) => {
-  const chartData = useMemo(() => {
-    const categoryTotals: { [key: string]: number } = {};
-    
-    transactions
-      .filter(t => t.type === 'expense')
-      .forEach(transaction => {
-        if (!categoryTotals[transaction.category]) {
-          categoryTotals[transaction.category] = 0;
-        }
-        categoryTotals[transaction.category] += Math.abs(transaction.amount);
-      });
-
-    return Object.entries(categoryTotals)
-      .map(([category, amount]) => ({
-        name: category,
-        value: amount,
-        icon: CATEGORIES[category as keyof typeof CATEGORIES] || '📦'
-      }))
-      .sort((a, b) => b.value - a.value);
-  }, [transactions]);
-
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0];
-      return (
-        <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-          <p className="font-medium text-gray-800">
-            {data.payload.icon} {data.payload.name}
-          </p>
-          <p className="text-blue-600 font-semibold">
-            ${data.value.toFixed(2)}
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  if (chartData.length === 0) {
+const CategoryChart: React.FC<CategoryChartProps> = ({ byCategory, showTable = false }) => {
+  if (byCategory.length === 0) {
     return (
-      <div className="h-80 flex items-center justify-center text-gray-500">
-        <div className="text-center">
-          <div className="h-16 w-16 mx-auto mb-4 text-gray-400 text-4xl">📊</div>
-          <p className="font-medium">No expense data</p>
-          <p className="text-sm">Add some expense transactions to see category breakdown</p>
+      <div className="h-80 flex items-center justify-center text-gray-500 text-center">
+        <div>
+          <p className="font-medium">No expenses this month</p>
+          <p className="text-sm">Add expenses to see where your money goes</p>
         </div>
       </div>
     );
   }
 
+  const total = byCategory.reduce((sum, c) => sum + c.totalPaise, 0);
+  const data = byCategory.map((c) => ({ name: c.category, value: c.totalPaise }));
+
   return (
-    <div className="h-80">
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={chartData}
-            cx="50%"
-            cy="50%"
-            innerRadius={60}
-            outerRadius={120}
-            paddingAngle={2}
-            dataKey="value"
-          >
-            {chartData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+    <div className="space-y-6">
+      <div className="h-80">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie data={data} cx="50%" cy="50%" innerRadius={60} outerRadius={110} paddingAngle={2} dataKey="value">
+              {data.map((entry, index) => (
+                <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip formatter={(value: number, name: string) => [formatINR(value), `${categoryIcon(name)} ${name}`]} />
+            <Legend verticalAlign="bottom" height={36} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+
+      {showTable && (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-500 border-b">
+              <th className="py-2 font-medium">Category</th>
+              <th className="py-2 font-medium text-right">Transactions</th>
+              <th className="py-2 font-medium text-right">Spent</th>
+              <th className="py-2 font-medium text-right">Share</th>
+            </tr>
+          </thead>
+          <tbody>
+            {byCategory.map((c) => (
+              <tr key={c.category} className="border-b last:border-0">
+                <td className="py-2">
+                  {categoryIcon(c.category)} {c.category}
+                </td>
+                <td className="py-2 text-right">{c.count}</td>
+                <td className="py-2 text-right font-medium">{formatINR(c.totalPaise)}</td>
+                <td className="py-2 text-right text-gray-600">{((c.totalPaise / total) * 100).toFixed(1)}%</td>
+              </tr>
             ))}
-          </Pie>
-          <Tooltip content={<CustomTooltip />} />
-          <Legend 
-            verticalAlign="bottom" 
-            height={36}
-            formatter={(value, entry, index) => {
-              const dataEntry = chartData[index];
-              return (
-                <span style={{ color: entry.color }}>
-                  {dataEntry?.icon} {value}
-                </span>
-              );
-            }}
-          />
-        </PieChart>
-      </ResponsiveContainer>
+          </tbody>
+        </table>
+      )}
     </div>
   );
 };

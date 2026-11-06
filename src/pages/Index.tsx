@@ -1,203 +1,127 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, TrendingUp, DollarSign, TrendingDown } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Plus, TrendingUp, IndianRupee, TrendingDown, Upload } from "lucide-react";
 import TransactionForm from "@/components/TransactionForm";
 import TransactionList from "@/components/TransactionList";
 import ExpenseChart from "@/components/ExpenseChart";
 import CategoryChart from "@/components/CategoryChart";
 import BudgetManager from "@/components/BudgetManager";
+import BudgetAlerts from "@/components/BudgetAlerts";
+import ImportCsv from "@/components/ImportCsv";
 import Sidebar from "@/components/Sidebar";
 import QuickAdd from "@/components/QuickAdd";
-import { Transaction, Budget } from "@/types/transaction";
-import { toast } from "@/hooks/use-toast";
+import { Transaction, TransactionInput } from "@/types/transaction";
+import { useFinance } from "@/hooks/useFinance";
+import { formatINR, formatMonth, thisMonth } from "@/lib/format";
+
+// "+12.5% vs last month", or a plain note when last month had nothing.
+function ChangeNote({ percent, goodWhenUp }: { percent: number | null; goodWhenUp: boolean }) {
+  if (percent === null) return <p className="text-xs text-gray-500 mt-1">No data for last month</p>;
+  const up = percent >= 0;
+  const good = up === goodWhenUp;
+  return (
+    <p className={`text-xs mt-1 ${good ? 'text-green-600' : 'text-red-600'}`}>
+      {up ? '+' : ''}
+      {percent}% vs last month
+    </p>
+  );
+}
+
+const Modal = ({ children }: { children: React.ReactNode }) => (
+  <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-lg shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">{children}</div>
+  </div>
+);
 
 const Index = () => {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [month, setMonth] = useState(thisMonth());
   const [activeTab, setActiveTab] = useState('overview');
+  const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
-  // Load data from localStorage on component mount
-  useEffect(() => {
-    const savedTransactions = localStorage.getItem('finance-transactions');
-    const savedBudgets = localStorage.getItem('finance-budgets');
-    
-    if (savedTransactions) {
-      setTransactions(JSON.parse(savedTransactions));
-    }
-    
-    if (savedBudgets) {
-      setBudgets(JSON.parse(savedBudgets));
-    }
-  }, []);
-
-  // Save data to localStorage whenever data changes
-  useEffect(() => {
-    localStorage.setItem('finance-transactions', JSON.stringify(transactions));
-  }, [transactions]);
-
-  useEffect(() => {
-    localStorage.setItem('finance-budgets', JSON.stringify(budgets));
-  }, [budgets]);
-
-  const addTransaction = (transaction: Omit<Transaction, 'id'>) => {
-    const newTransaction: Transaction = {
-      ...transaction,
-      id: crypto.randomUUID(),
-    };
-    setTransactions(prev => [newTransaction, ...prev]);
-    setShowForm(false);
-    toast({
-      title: "Transaction Added",
-      description: "Your transaction has been successfully added.",
-    });
-  };
-
-  const updateTransaction = (id: string, updatedTransaction: Omit<Transaction, 'id'>) => {
-    setTransactions(prev =>
-      prev.map(t => t.id === id ? { ...updatedTransaction, id } : t)
-    );
-    setEditingTransaction(null);
-    setShowForm(false);
-    toast({
-      title: "Transaction Updated",
-      description: "Your transaction has been successfully updated.",
-    });
-  };
-
-  const deleteTransaction = (id: string) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
-    toast({
-      title: "Transaction Deleted",
-      description: "Your transaction has been successfully deleted.",
-      variant: "destructive",
-    });
-  };
+  const finance = useFinance(month);
+  const { summary, list } = finance;
 
   const handleEdit = (transaction: Transaction) => {
     setEditingTransaction(transaction);
     setShowForm(true);
   };
 
-  const handleCloseForm = () => {
+  const closeForm = () => {
     setShowForm(false);
     setEditingTransaction(null);
   };
 
-  // Budget management functions
-  const addBudget = (budget: Omit<Budget, 'id'>) => {
-    const newBudget: Budget = {
-      ...budget,
-      id: crypto.randomUUID(),
-    };
-    setBudgets(prev => [...prev, newBudget]);
-    toast({
-      title: "Budget Added",
-      description: "Your budget has been successfully added.",
-    });
+  const handleSubmit = async (input: TransactionInput) => {
+    const result = editingTransaction
+      ? await finance.updateTransaction(editingTransaction.id, input)
+      : await finance.addTransaction(input);
+    if (result.ok) closeForm();
+    return result;
   };
 
-  const updateBudget = (id: string, updatedBudget: Omit<Budget, 'id'>) => {
-    setBudgets(prev =>
-      prev.map(b => b.id === id ? { ...updatedBudget, id } : b)
-    );
-    toast({
-      title: "Budget Updated",
-      description: "Your budget has been successfully updated.",
-    });
+  const handleDelete = (id: string) => {
+    finance.deleteTransaction(id);
   };
-
-  const deleteBudget = (id: string) => {
-    setBudgets(prev => prev.filter(b => b.id !== id));
-    toast({
-      title: "Budget Deleted",
-      description: "Your budget has been successfully deleted.",
-      variant: "destructive",
-    });
-  };
-
-  // Calculate statistics
-  const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-  const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + Math.abs(t.amount), 0);
-  const totalBalance = totalIncome - totalExpenses;
-  const transactionCount = transactions.length;
-
-  // Get current month data
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const currentMonthTransactions = transactions.filter(t => t.date.startsWith(currentMonth));
-  const monthlyIncome = currentMonthTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-  const monthlyExpenses = currentMonthTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + Math.abs(t.amount), 0);
 
   const renderContent = () => {
+    if (!summary) {
+      return <p className="text-gray-500">{finance.loading ? 'Loading…' : 'Could not load data.'}</p>;
+    }
+
     switch (activeTab) {
       case 'overview':
         return (
           <div className="space-y-6">
-            {/* Summary Cards */}
+            <BudgetAlerts alerts={summary.alerts} onOpenBudgets={() => setActiveTab('budgets')} />
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300">
+              <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Total Balance
-                  </CardTitle>
-                  <DollarSign className="h-4 w-4 text-blue-600" />
+                  <CardTitle className="text-sm font-medium text-gray-600">Total Balance</CardTitle>
+                  <IndianRupee className="h-4 w-4 text-blue-600" />
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-2xl font-bold ${totalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    ${totalBalance.toFixed(2)}
+                  <div className={`text-2xl font-bold ${summary.balancePaise >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatINR(summary.balancePaise)}
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {totalBalance >= 0 ? '+12%' : '-31%'} from last month
-                  </p>
+                  <p className="text-xs text-gray-500 mt-1">All time, {summary.transactionCount} transactions</p>
                 </CardContent>
               </Card>
 
-              <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300">
+              <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Monthly Income
-                  </CardTitle>
+                  <CardTitle className="text-sm font-medium text-gray-600">Income · {formatMonth(month)}</CardTitle>
                   <TrendingUp className="h-4 w-4 text-green-600" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-gray-800">
-                    ${monthlyIncome.toFixed(2)}
-                  </div>
-                  <p className="text-xs text-green-600 mt-1">
-                    +5.2% from last month
-                  </p>
+                  <div className="text-2xl font-bold text-gray-800">{formatINR(summary.monthIncomePaise)}</div>
+                  <ChangeNote percent={summary.incomeChangePercent} goodWhenUp />
                 </CardContent>
               </Card>
 
-              <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg hover:shadow-xl transition-all duration-300">
+              <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">
-                    Monthly Expenses
-                  </CardTitle>
+                  <CardTitle className="text-sm font-medium text-gray-600">Expenses · {formatMonth(month)}</CardTitle>
                   <TrendingDown className="h-4 w-4 text-red-600" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-gray-800">
-                    ${monthlyExpenses.toFixed(2)}
-                  </div>
-                  <p className="text-xs text-red-600 mt-1">
-                    +31% from last month
-                  </p>
+                  <div className="text-2xl font-bold text-gray-800">{formatINR(summary.monthExpensePaise)}</div>
+                  <ChangeNote percent={summary.expenseChangePercent} goodWhenUp={false} />
                 </CardContent>
               </Card>
             </div>
 
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg">
                 <CardHeader>
-                  <CardTitle>Monthly Expenses</CardTitle>
+                  <CardTitle>Last 12 Months</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ExpenseChart transactions={transactions} />
+                  <ExpenseChart trend={summary.trend} />
                 </CardContent>
               </Card>
 
@@ -206,30 +130,25 @@ const Index = () => {
                   <CardTitle>Spending by Category</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <CategoryChart transactions={transactions} />
+                  <CategoryChart byCategory={summary.byCategory} />
                 </CardContent>
               </Card>
             </div>
 
-            {/* Recent Transactions */}
             <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span>Recent Transactions</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setActiveTab('transactions')}
-                  >
+                  <Button variant="outline" size="sm" onClick={() => setActiveTab('transactions')}>
                     View All
                   </Button>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <TransactionList
-                  transactions={transactions.slice(0, 5)}
+                  transactions={(list?.items ?? []).slice(0, 5)}
                   onEdit={handleEdit}
-                  onDelete={deleteTransaction}
+                  onDelete={handleDelete}
                 />
               </CardContent>
             </Card>
@@ -238,53 +157,57 @@ const Index = () => {
 
       case 'transactions':
         return (
-          <div className="space-y-6">
-            <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span>All Transactions</span>
-                  <Button
-                    onClick={() => setShowForm(true)}
-                    className="bg-gradient-to-r from-blue-600 to-green-600 hover:from-blue-700 hover:to-green-700 text-white border-0 shadow-lg"
-                  >
+          <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+                <span>Transactions · {formatMonth(month)}</span>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setShowImport(true)}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import CSV
+                  </Button>
+                  <Button onClick={() => setShowForm(true)} className="bg-blue-600 hover:bg-blue-700 text-white">
                     <Plus className="h-4 w-4 mr-2" />
                     Add Transaction
                   </Button>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <TransactionList
-                  transactions={transactions}
-                  onEdit={handleEdit}
-                  onDelete={deleteTransaction}
-                />
-              </CardContent>
-            </Card>
-          </div>
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TransactionList
+                transactions={list?.items ?? []}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                search={finance.search}
+                onSearchChange={finance.setSearch}
+                page={list?.page}
+                totalPages={list?.totalPages}
+                total={list?.total}
+                onPageChange={finance.setPage}
+              />
+            </CardContent>
+          </Card>
         );
 
       case 'categories':
         return (
-          <div className="space-y-6">
-            <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg">
-              <CardHeader>
-                <CardTitle>Category Analysis</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CategoryChart transactions={transactions} />
-              </CardContent>
-            </Card>
-          </div>
+          <Card className="bg-white/70 backdrop-blur-sm border-0 shadow-lg">
+            <CardHeader>
+              <CardTitle>Category Analysis · {formatMonth(month)}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <CategoryChart byCategory={summary.byCategory} showTable />
+            </CardContent>
+          </Card>
         );
 
       case 'budgets':
         return (
           <BudgetManager
-            budgets={budgets}
-            transactions={transactions}
-            onAddBudget={addBudget}
-            onUpdateBudget={updateBudget}
-            onDeleteBudget={deleteBudget}
+            month={month}
+            budgets={summary.budgets}
+            onSaveBudget={finance.saveBudget}
+            onDeleteBudget={finance.deleteBudget}
           />
         );
 
@@ -296,47 +219,49 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50">
       <div className="flex">
-        {/* Sidebar */}
         <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
-        
-        {/* Main Content */}
-        <div className="flex-1 flex">
-          <div className="flex-1 p-8">
-            {/* Header */}
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                Personal Finance Dashboard
-              </h1>
-              <p className="text-gray-600">
-                Track your expenses and manage your budget effectively
-              </p>
+
+        <div className="flex-1 flex min-w-0">
+          <div className="flex-1 p-8 min-w-0">
+            <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-bold text-gray-800 mb-2">Personal Finance Dashboard</h1>
+                <p className="text-gray-600">Track your expenses and manage your budget effectively</p>
+              </div>
+              <div>
+                <label htmlFor="month" className="block text-xs text-gray-500 mb-1">
+                  Month
+                </label>
+                <Input
+                  id="month"
+                  type="month"
+                  value={month}
+                  max={thisMonth()}
+                  onChange={(e) => e.target.value && setMonth(e.target.value)}
+                  className="w-44 bg-white"
+                />
+              </div>
             </div>
 
             {renderContent()}
           </div>
 
-          {/* Quick Add Sidebar */}
-          <div className="w-80 p-6 border-l border-gray-200">
-            <QuickAdd onAddTransaction={addTransaction} />
+          <div className="w-80 shrink-0 p-6 border-l border-gray-200 hidden lg:block">
+            <QuickAdd onAddTransaction={finance.addTransaction} />
           </div>
         </div>
       </div>
 
-      {/* Transaction Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <TransactionForm
-              onSubmit={editingTransaction 
-                ? (data) => updateTransaction(editingTransaction.id, data)
-                : addTransaction
-              }
-              onCancel={handleCloseForm}
-              initialData={editingTransaction}
-              mode={editingTransaction ? 'edit' : 'add'}
-            />
-          </div>
-        </div>
+        <Modal>
+          <TransactionForm onSubmit={handleSubmit} onCancel={closeForm} initialData={editingTransaction} />
+        </Modal>
+      )}
+
+      {showImport && (
+        <Modal>
+          <ImportCsv onImport={finance.importCsv} onClose={() => setShowImport(false)} />
+        </Modal>
       )}
     </div>
   );
