@@ -2,6 +2,8 @@
 
 Track income and expenses, see where your money goes, set monthly budgets with alerts, and import bank statements from CSV. Each user has their own account and data.
 
+**Live demo:** https://expense-dash-visualize.vercel.app (the API runs on Render's free tier, so the first request after a while can take 30–50 seconds)
+
 **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, Recharts
 **Backend:** Node.js, Express, MongoDB (Mongoose), JWT auth
 **Tests:** Node.js test runner, Supertest, mongodb-memory-server
